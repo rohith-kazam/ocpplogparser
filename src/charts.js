@@ -25,7 +25,7 @@ export function renderChart(el, key, pts, statusChanges, configEvents, windowRan
   const traces = [{
     x: xs, y: ys, mode: 'lines+markers', name: label,
     line: { color, width: 2 }, marker: { size: 3 },
-    hovertemplate: `%{x|%H:%M:%S}<br>%{y:.2f} ${unit}<extra></extra>`,
+    hovertemplate: `<b>${label}</b>: %{y:.2f} ${unit}<br>%{x|%H:%M:%S}<extra></extra>`,
   }];
 
   const shapes = [];
@@ -39,7 +39,9 @@ export function renderChart(el, key, pts, statusChanges, configEvents, windowRan
     if (y == null) continue;
     sx.push(ts); sy.push(y);
     scolors.push(STATUS_COLOR[sc.status] || '#475569');
-    stext.push(`${sc.status} / ${sc.errorCode}<br>conn ${sc.connector}` +
+    const errSuffix = sc.errorCode && sc.errorCode !== 'NoError' ? ` (${sc.errorCode})` : '';
+    const prevPart = sc.prev ? `<br><i>was: ${sc.prev}</i>` : '';
+    stext.push(`<b>${sc.status}${errSuffix}</b><br>conn ${sc.connector}${prevPart}` +
       (sc.info ? `<br>${sc.info}` : ''));
     shapes.push({
       type: 'line', xref: 'x', yref: 'paper', x0: ts, x1: ts, y0: 0, y1: 1,
@@ -52,7 +54,7 @@ export function renderChart(el, key, pts, statusChanges, configEvents, windowRan
       x: sx, y: sy, mode: 'markers', name: 'Status change',
       marker: { symbol: 'diamond', size: 11, color: scolors, line: { width: 1, color: '#0f172a' } },
       text: stext,
-      hovertemplate: '<b>Status change</b><br>%{text}<br>%{x|%H:%M:%S}<extra></extra>',
+      hovertemplate: '<b>Status change</b><br>%{text}<br>%{x|%H:%M:%S}<extra>Status</extra>',
     });
   }
 
@@ -64,7 +66,10 @@ export function renderChart(el, key, pts, statusChanges, configEvents, windowRan
     const y = nearestY(pts, ts);
     if (y == null) continue;
     cx.push(ts); cy.push(y);
-    ctext.push(`${ce.action} (${ce.kind})`);
+    let ctip = `<b>${ce.action}</b>`;
+    if (ce.detail) ctip += `<br>${ce.detail}`;
+    if (ce.result) ctip += `<br><i>${ce.result}</i>`;
+    ctext.push(ctip);
     shapes.push({
       type: 'line', xref: 'x', yref: 'paper', x0: ts, x1: ts, y0: 0, y1: 1,
       line: { color: '#0ea5e9', width: 1, dash: 'dash' }, opacity: 0.3,
@@ -75,7 +80,7 @@ export function renderChart(el, key, pts, statusChanges, configEvents, windowRan
       x: cx, y: cy, mode: 'markers', name: 'Config change',
       marker: { symbol: 'square', size: 10, color: '#0ea5e9', line: { width: 1, color: '#0369a1' } },
       text: ctext,
-      hovertemplate: '<b>Config change</b><br>%{text}<br>%{x|%H:%M:%S}<extra></extra>',
+      hovertemplate: '%{text}<br>%{x|%H:%M:%S}<extra>Config</extra>',
     });
   }
 
@@ -86,10 +91,25 @@ export function renderChart(el, key, pts, statusChanges, configEvents, windowRan
     shapes,
     legend: { orientation: 'h', yanchor: 'bottom', y: 1.02, xanchor: 'left', x: 0, font: { size: 10, color: '#94a3b8' } },
     hovermode: 'closest',
+    hoverdistance: 40,
+    hoverlabel: {
+      bgcolor: 'rgba(15,23,42,0.93)',
+      bordercolor: 'rgba(148,163,184,0.35)',
+      font: { family: 'ui-monospace, SFMono-Regular, Menlo, monospace', size: 11, color: '#e2e8f0' },
+    },
     plot_bgcolor: 'rgba(0,0,0,0)', paper_bgcolor: 'rgba(0,0,0,0)',
     font: { family: 'ui-monospace, SFMono-Regular, Menlo, monospace', size: 11, color: '#94a3b8' },
-    xaxis: { showgrid: true, gridcolor: 'rgba(148,163,184,0.12)', zeroline: false },
-    yaxis: { title: { text: unit, font: { size: 10 } }, showgrid: true, gridcolor: 'rgba(148,163,184,0.12)', zeroline: false },
+    xaxis: {
+      showgrid: true, gridcolor: 'rgba(148,163,184,0.12)', zeroline: false,
+      showspikes: true, spikemode: 'across', spikecolor: 'rgba(148,163,184,0.3)',
+      spikethickness: 1, spikedash: 'dot', spikesnap: 'cursor',
+    },
+    yaxis: {
+      title: { text: unit, font: { size: 10 } },
+      showgrid: true, gridcolor: 'rgba(148,163,184,0.12)', zeroline: false,
+      showspikes: true, spikemode: 'across', spikecolor: 'rgba(148,163,184,0.15)',
+      spikethickness: 1, spikedash: 'dot',
+    },
   };
 
   Plotly.newPlot(el, traces, layout, { responsive: true, displaylogo: false, displayModeBar: 'hover' });

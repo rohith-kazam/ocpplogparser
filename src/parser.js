@@ -30,16 +30,36 @@ export function parseTs(s) {
 
 function decodeFrame(message) {
   let frame;
-  try { frame = JSON.parse(message); } catch { return { mtid: null, action: null, payload: null }; }
-  if (!Array.isArray(frame) || frame.length === 0) return { mtid: null, action: null, payload: null };
+  try { frame = JSON.parse(message); } catch { return { mtid: null, uid: null, action: null, payload: null }; }
+  if (!Array.isArray(frame) || frame.length === 0) return { mtid: null, uid: null, action: null, payload: null };
   const mtid = frame[0];
+  const uid = frame.length > 1 ? String(frame[1]) : null;
   if (mtid === 2 && frame.length >= 4) {
-    return { mtid: 2, action: frame[2], payload: typeof frame[3] === 'object' && frame[3] ? frame[3] : {} };
+    return { mtid: 2, uid, action: frame[2], payload: typeof frame[3] === 'object' && frame[3] ? frame[3] : {} };
   }
   if (mtid === 3 && frame.length >= 3) {
-    return { mtid: 3, action: null, payload: typeof frame[2] === 'object' && frame[2] ? frame[2] : {} };
+    return { mtid: 3, uid, action: null, payload: typeof frame[2] === 'object' && frame[2] ? frame[2] : {} };
   }
-  return { mtid, action: null, payload: {} };
+  return { mtid, uid, action: null, payload: {} };
+}
+
+function buildConfigDetail(action, payload) {
+  if (action === 'ChangeConfiguration') {
+    return payload.key != null ? `${payload.key}: ${payload.value ?? ''}` : null;
+  }
+  if (action === 'ChangeAvailability') {
+    return `conn ${payload.connectorId} → ${payload.type}`;
+  }
+  if (action === 'SetChargingProfile') {
+    return `conn ${payload.connectorId}`;
+  }
+  if (action === 'ClearChargingProfile') {
+    return payload.id != null ? `profile id: ${payload.id}` : null;
+  }
+  if (action === 'SendLocalList') {
+    return `${payload.updateType} (v${payload.listVersion})`;
+  }
+  return null;
 }
 
 function measurandKey(sv) {
@@ -76,6 +96,7 @@ export function parseRows(rows) {
   const statusChanges = [];
   const lastStatus = new Map();   // connectorId -> "status|err"
   const configEvents = [];
+  const pendingConfig = new Map(); // uid -> configEvent ref (for CALLRESULT correlation)
   const boots = [];
   let heartbeats = 0;
   const counts = {};
@@ -100,7 +121,7 @@ export function parseRows(rows) {
     const typ = row['TYPE'];
     const src = row['SOURCE'];
     counts[action] = (counts[action] || 0) + 1;
-    const { mtid, payload } = decodeFrame(row['MESSAGE'] || '');
+    const { mtid, uid, payload } = decodeFrame(row['MESSAGE'] || '');
     if (payload == null) continue;
 
     if (action === 'MeterValues' && mtid === 2) {
@@ -163,8 +184,15 @@ export function parseRows(rows) {
         });
         lastStatus.set(conn, sig);
       }
-    } else if (CONFIG_CHANGE.has(action) && mtid === 2) {
-      configEvents.push({ ts, action, kind: 'change', source: src });
+    } else if (CONFIG_CHANGE.has(action)) {
+      if (mtid === 2) {
+        const ev = { ts, action, kind: 'change', source: src, detail: buildConfigDetail(action, payload), result: null };
+        configEvents.push(ev);
+        if (uid) pendingConfig.set(uid, ev);
+      } else if (mtid === 3 && uid && pendingConfig.has(uid)) {
+        pendingConfig.get(uid).result = payload.status ?? null;
+        pendingConfig.delete(uid);
+      }
     } else if (action === 'BootNotification' && mtid === 2) {
       boots.push({
         ts, fw: payload.firmwareVersion, model: payload.chargePointModel,
