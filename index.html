@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OCPP Log Report</title>
+  <meta name="description" content="Upload an OCPP 1.6J CSV log and get per-transaction graphs and a fault/voltage summary — entirely in your browser." />
+  <link rel="stylesheet" href="./src/style.css" />
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand">
+      <div class="spark">⚡</div>
+      <h1>OCPP Log Report</h1>
+      <span class="ver">1.6J</span>
+    </div>
+    <div class="spacer"></div>
+    <button id="reset" class="btn">New file</button>
+  </div>
+
+  <div class="wrap">
+    <div class="intro">
+      <div class="eyebrow">EVSE charging-session analyzer</div>
+      <h2>Drop an OCPP log, read the session</h2>
+      <p>Upload a CSV export of OCPP 1.6J traffic. Everything is parsed in your browser —
+         nothing is uploaded to a server. You get a graph per measurand for every
+         transaction, markers at status and configuration changes, and a fault summary.</p>
+    </div>
+
+    <div id="dropzone">
+      <div class="dz-icon">📈</div>
+      <div class="dz-main">Drop your OCPP CSV here</div>
+      <div class="dz-sub">columns: TIMESTAMP · DEVICE ID · SOURCE · TYPE · ACTION · MESSAGE</div>
+      <button id="pick" class="btn primary">Choose file</button>
+      <input id="fileInput" type="file" accept=".csv,text/csv" hidden />
+    </div>
+
+    <div class="cols">
+      <div class="feat"><b>Per-transaction graphs</b><span>Voltage, current, power, energy and any other measurand in the MeterValues.</span></div>
+      <div class="feat"><b>Change markers</b><span>Diamonds at every StatusNotification change; squares at configuration changes.</span></div>
+      <div class="feat"><b>Fault summary</b><span>Mid-transaction faults, peak/min voltage, max/min power and current.</span></div>
+    </div>
+
+    <div id="status"></div>
+    <div id="report"></div>
+  </div>
+
+  <footer>Runs entirely client-side · times shown in UTC · drag on a chart to zoom, double-click to reset</footer>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
