@@ -2,6 +2,9 @@
 import Plotly from 'plotly.js-dist-min';
 import { shortLabel, seriesColor, STATUS_COLOR } from './parser.js';
 
+// Guard against recursive hover events when we programmatically trigger siblings.
+let _syncHover = false;
+
 function nearestY(pts, ts) {
   if (!pts.length) return null;
   let best = pts[0], bestDiff = Math.abs(pts[0][0] - ts);
@@ -113,4 +116,34 @@ export function renderChart(el, key, pts, statusChanges, configEvents, windowRan
   };
 
   Plotly.newPlot(el, traces, layout, { responsive: true, displaylogo: false, displayModeBar: 'hover' });
+
+  // Sync hover across all sibling charts in the same transaction.
+  el.on('plotly_hover', function(eventData) {
+    if (_syncHover || !eventData.points || !eventData.points.length) return;
+    const xTs = new Date(eventData.points[0].x).getTime();
+    _syncHover = true;
+    const siblings = el.parentElement ? Array.from(el.parentElement.children) : [];
+    for (const sib of siblings) {
+      if (sib === el || !sib.data || !sib.data[0] || !sib.data[0].x.length) continue;
+      const sibXs = sib.data[0].x;
+      let best = 0, bestDiff = Infinity;
+      for (let i = 0; i < sibXs.length; i++) {
+        const d = Math.abs(new Date(sibXs[i]).getTime() - xTs);
+        if (d < bestDiff) { bestDiff = d; best = i; }
+      }
+      Plotly.Fx.hover(sib, [{ curveNumber: 0, pointNumber: best }]);
+    }
+    _syncHover = false;
+  });
+
+  el.on('plotly_unhover', function() {
+    if (_syncHover) return;
+    _syncHover = true;
+    const siblings = el.parentElement ? Array.from(el.parentElement.children) : [];
+    for (const sib of siblings) {
+      if (sib === el || !sib.data) continue;
+      Plotly.Fx.hover(sib, []);
+    }
+    _syncHover = false;
+  });
 }
