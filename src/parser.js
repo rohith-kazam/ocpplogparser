@@ -243,8 +243,10 @@ export function seriesStats(tx) {
   for (const [key, pts] of tx.series.entries()) {
     if (!pts.length) continue;
     const vals = pts.map((p) => p[1]);
+    const sum = vals.reduce((s, v) => s + v, 0);
     out[key] = {
       min: Math.min(...vals), max: Math.max(...vals),
+      avg: sum / vals.length,
       first: pts[0][1], last: pts[pts.length - 1][1],
       unit: pts[0][2], n: vals.length,
     };

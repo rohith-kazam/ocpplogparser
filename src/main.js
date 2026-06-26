@@ -120,6 +120,8 @@ function buildReport(data) {
       `min ${stats[ikey].min.toFixed(2)} A`, '#22c55e'));
     if (pkey) cards.appendChild(card('Max power', `${stats[pkey].max.toFixed(0)} W`,
       `min ${stats[pkey].min.toFixed(0)} W`, '#f59e0b'));
+    if (pkey) cards.appendChild(card('Avg power', `${stats[pkey].avg.toFixed(0)} W`,
+      `over ${stats[pkey].n} samples`, '#f59e0b'));
     if (ekey) cards.appendChild(card('Energy delivered', energyDelivered,
       `${stats[ekey].first.toFixed(0)} → ${stats[ekey].last.toFixed(0)} ${stats[ekey].unit}`, '#a855f7'));
     section.appendChild(cards);
