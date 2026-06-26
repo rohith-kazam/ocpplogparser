@@ -5,6 +5,41 @@ import { shortLabel, seriesColor, STATUS_COLOR } from './parser.js';
 // Guard against recursive hover events (Plotly.Fx.hover fires plotly_hover synchronously).
 let _syncHover = false;
 
+// Reset every rendered chart to full autorange, print, then restore the previous zoom.
+export function prepareAndPrint(chartEls) {
+  const divs = chartEls.filter((d) => d.data && d._fullLayout);
+  if (!divs.length) { window.print(); return; }
+
+  // Snapshot zoom state before touching anything.
+  const saved = divs.map((d) => ({
+    xauto: d._fullLayout.xaxis.autorange,
+    xrange: d._fullLayout.xaxis.range ? d._fullLayout.xaxis.range.slice() : null,
+    yauto: d._fullLayout.yaxis.autorange,
+    yrange: d._fullLayout.yaxis.range ? d._fullLayout.yaxis.range.slice() : null,
+  }));
+
+  Promise.all(
+    divs.map((d) => Plotly.relayout(d, { 'xaxis.autorange': true, 'yaxis.autorange': true }))
+  ).then(() => {
+    window.addEventListener('afterprint', () => {
+      divs.forEach((d, i) => {
+        const s = saved[i];
+        const update = {};
+        if (!s.xauto && s.xrange) {
+          update['xaxis.range[0]'] = s.xrange[0];
+          update['xaxis.range[1]'] = s.xrange[1];
+        }
+        if (!s.yauto && s.yrange) {
+          update['yaxis.range[0]'] = s.yrange[0];
+          update['yaxis.range[1]'] = s.yrange[1];
+        }
+        if (Object.keys(update).length) Plotly.relayout(d, update);
+      });
+    }, { once: true });
+    window.print();
+  });
+}
+
 function nearestY(pts, ts) {
   if (!pts.length) return null;
   let best = pts[0], bestDiff = Math.abs(pts[0][0] - ts);

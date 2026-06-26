@@ -3,7 +3,7 @@ import {
   parseRows, txWindow, faultsDuringTx, seriesStats, fmtDur,
   findSeriesKey, globalExtremes, shortLabel, FAULT_STATUS,
 } from './parser.js';
-import { renderChart } from './charts.js';
+import { renderChart, prepareAndPrint } from './charts.js';
 
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, cls, html) => {
@@ -220,7 +220,9 @@ function init() {
     if (f) handleFile(f);
   });
 
-  $('#export-pdf').addEventListener('click', () => window.print());
+  $('#export-pdf').addEventListener('click', () => {
+    prepareAndPrint(Array.from(document.querySelectorAll('#report .chart')));
+  });
 
   $('#reset').addEventListener('click', () => {
     document.body.classList.remove('has-report');

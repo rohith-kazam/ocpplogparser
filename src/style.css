@@ -168,34 +168,34 @@ footer { text-align: center; color: var(--muted); font-size: 11px; padding: 26px
 }
 
 @media print {
-  /* Preserve background colours — user must have "Background graphics" on,
-     or use Save as PDF which always preserves them. */
+  /* Preserve background colours — always works with Save-as-PDF;
+     for physical printing the user must enable "Background graphics". */
   *, *::before, *::after {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
 
-  /* Strip all UI chrome — only the report should appear. */
+  /* Strip all UI chrome. */
   .topbar, .intro, .cols, #dropzone, #status, footer, details {
     display: none !important;
   }
 
-  body {
-    background: var(--bg);
-    min-height: unset;
-  }
+  body { background: var(--bg); min-height: unset; }
 
   .wrap { max-width: none; padding: 10px 16px; }
 
-  /* Keep the 2-column chart grid for print — fits ~4 charts per A4 page. */
-  .charts { grid-template-columns: 1fr 1fr; }
+  /* Single-column charts so every chart gets the full page width.
+     Plotly (responsive:true) will fill the container at render time,
+     and prepareAndPrint resets axis ranges to autorange before print()
+     so all data — including status/config markers — is always visible. */
+  .charts { grid-template-columns: 1fr; }
 
-  /* Avoid splitting a card or chart across a page boundary. */
-  .card, .chart, .cards { break-inside: avoid; }
+  /* Let chart boxes grow to whatever Plotly drew — don't clip. */
+  .chart { min-height: unset; overflow: visible; }
+
+  /* Avoid splitting a card row or an individual chart across a page break. */
+  .card, .cards, .chart { break-inside: avoid; }
 
   /* Each transaction starts on a fresh page. */
   section.tx { break-before: page; margin-bottom: 0; }
-
-  /* The device summary (first content block) stays on page 1 with the header. */
-  .report-head, #report > h2, #report > .cards { break-before: auto; }
 }
