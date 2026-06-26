@@ -56,8 +56,9 @@ body {
 .btn:hover { border-color: #2c3c5a; }
 .btn.primary { background: var(--accent); color: #2a1c00; border-color: transparent; }
 .btn.primary:hover { filter: brightness(1.06); }
-#reset { display: none; }
-body.has-report #reset { display: inline-block; }
+#reset, #export-pdf { display: none; }
+body.has-report #reset,
+body.has-report #export-pdf { display: inline-block; }
 
 .wrap { max-width: 1120px; margin: 0 auto; padding: 18px; }
 
@@ -164,4 +165,37 @@ footer { text-align: center; color: var(--muted); font-size: 11px; padding: 26px
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
+}
+
+@media print {
+  /* Preserve background colours — user must have "Background graphics" on,
+     or use Save as PDF which always preserves them. */
+  *, *::before, *::after {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Strip all UI chrome — only the report should appear. */
+  .topbar, .intro, .cols, #dropzone, #status, footer, details {
+    display: none !important;
+  }
+
+  body {
+    background: var(--bg);
+    min-height: unset;
+  }
+
+  .wrap { max-width: none; padding: 10px 16px; }
+
+  /* Keep the 2-column chart grid for print — fits ~4 charts per A4 page. */
+  .charts { grid-template-columns: 1fr 1fr; }
+
+  /* Avoid splitting a card or chart across a page boundary. */
+  .card, .chart, .cards { break-inside: avoid; }
+
+  /* Each transaction starts on a fresh page. */
+  section.tx { break-before: page; margin-bottom: 0; }
+
+  /* The device summary (first content block) stays on page 1 with the header. */
+  .report-head, #report > h2, #report > .cards { break-before: auto; }
 }

@@ -2,9 +2,8 @@
 import Plotly from 'plotly.js-dist-min';
 import { shortLabel, seriesColor, STATUS_COLOR } from './parser.js';
 
-// Guards against recursive events when we programmatically update siblings.
+// Guard against recursive hover events (Plotly.Fx.hover fires plotly_hover synchronously).
 let _syncHover = false;
-let _syncZoom = false;
 
 function nearestY(pts, ts) {
   if (!pts.length) return null;
@@ -126,6 +125,7 @@ export function renderChart(el, key, pts, statusChanges, configEvents, windowRan
     const siblings = el.parentElement ? Array.from(el.parentElement.children) : [];
     for (const sib of siblings) {
       if (sib === el || !sib.data || !sib.data[0] || !sib.data[0].x.length) continue;
+      if (sib.dataset.txid !== el.dataset.txid) continue;
       const sibXs = sib.data[0].x;
       let best = 0, bestDiff = Infinity;
       for (let i = 0; i < sibXs.length; i++) {
@@ -143,14 +143,17 @@ export function renderChart(el, key, pts, statusChanges, configEvents, windowRan
     const siblings = el.parentElement ? Array.from(el.parentElement.children) : [];
     for (const sib of siblings) {
       if (sib === el || !sib.data) continue;
+      if (sib.dataset.txid !== el.dataset.txid) continue;
       Plotly.Fx.hover(sib, []);
     }
     _syncHover = false;
   });
 
   // Sync zoom/pan/reset across all sibling charts in the same transaction.
+  // Plotly.relayout is async, so we stamp each target element before calling it
+  // and clear in the Promise — a module-level boolean would reset too early.
   el.on('plotly_relayout', function(eventData) {
-    if (_syncZoom) return;
+    if (el._zoomBusy) return;
     const x0 = eventData['xaxis.range[0]'];
     const x1 = eventData['xaxis.range[1]'];
     const autorange = eventData['xaxis.autorange'];
@@ -158,12 +161,12 @@ export function renderChart(el, key, pts, statusChanges, configEvents, windowRan
     const update = autorange
       ? { 'xaxis.autorange': true }
       : { 'xaxis.range[0]': x0, 'xaxis.range[1]': x1 };
-    _syncZoom = true;
     const siblings = el.parentElement ? Array.from(el.parentElement.children) : [];
     for (const sib of siblings) {
       if (sib === el || !sib.data) continue;
-      Plotly.relayout(sib, update);
+      if (sib.dataset.txid !== el.dataset.txid) continue;
+      sib._zoomBusy = true;
+      Plotly.relayout(sib, update).then(() => { sib._zoomBusy = false; });
     }
-    _syncZoom = false;
   });
 }

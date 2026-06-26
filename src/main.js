@@ -121,7 +121,7 @@ function buildReport(data) {
     if (pkey) cards.appendChild(card('Max power', `${stats[pkey].max.toFixed(0)} W`,
       `min ${stats[pkey].min.toFixed(0)} W`, '#f59e0b'));
     if (ekey) cards.appendChild(card('Energy delivered', energyDelivered,
-      `register ${stats[ekey].last.toFixed(0)} ${stats[ekey].unit}`, '#a855f7'));
+      `${stats[ekey].first.toFixed(0)} → ${stats[ekey].last.toFixed(0)} ${stats[ekey].unit}`, '#a855f7'));
     section.appendChild(cards);
 
     const order = [vkey, ikey, pkey, ekey].filter(Boolean);
@@ -130,6 +130,7 @@ function buildReport(data) {
     const charts = el('div', 'charts');
     for (const k of order) {
       const chartDiv = el('div', 'chart');
+      chartDiv.dataset.txid = String(key);
       charts.appendChild(chartDiv);
       chartJobs.push(() => renderChart(chartDiv, k, tx.series.get(k),
         statusChanges, configEvents, [start, stop]));
@@ -218,6 +219,8 @@ function init() {
     const f = e.dataTransfer.files[0];
     if (f) handleFile(f);
   });
+
+  $('#export-pdf').addEventListener('click', () => window.print());
 
   $('#reset').addEventListener('click', () => {
     document.body.classList.remove('has-report');
