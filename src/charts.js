@@ -40,6 +40,9 @@ export function prepareAndPrint(chartEls) {
   });
 }
 
+const IST_OFFSET_MS = 330 * 60 * 1000; // UTC+5:30
+const toIST = (d) => new Date(d.getTime() + IST_OFFSET_MS);
+
 function nearestY(pts, ts) {
   if (!pts.length) return null;
   let best = pts[0], bestDiff = Math.abs(pts[0][0] - ts);
@@ -57,7 +60,7 @@ export function renderChart(el, key, pts, statusChanges, configEvents, windowRan
   const color = seriesColor(key);
   const [start, stop] = windowRange;
 
-  const xs = pts.map((p) => p[0]);
+  const xs = pts.map((p) => toIST(p[0]));
   const ys = pts.map((p) => p[1]);
 
   const traces = [{
@@ -75,14 +78,15 @@ export function renderChart(el, key, pts, statusChanges, configEvents, windowRan
     if (!ts || (start && stop && (ts < start || ts > stop))) continue;
     const y = nearestY(pts, ts);
     if (y == null) continue;
-    sx.push(ts); sy.push(y);
+    const tsIST = toIST(ts);
+    sx.push(tsIST); sy.push(y);
     scolors.push(STATUS_COLOR[sc.status] || '#475569');
     const errSuffix = sc.errorCode && sc.errorCode !== 'NoError' ? ` (${sc.errorCode})` : '';
     const prevPart = sc.prev ? `<br><i>was: ${sc.prev}</i>` : '';
     stext.push(`<b>${sc.status}${errSuffix}</b><br>conn ${sc.connector}${prevPart}` +
       (sc.info ? `<br>${sc.info}` : ''));
     shapes.push({
-      type: 'line', xref: 'x', yref: 'paper', x0: ts, x1: ts, y0: 0, y1: 1,
+      type: 'line', xref: 'x', yref: 'paper', x0: tsIST, x1: tsIST, y0: 0, y1: 1,
       line: { color: STATUS_COLOR[sc.status] || '#94a3b8', width: 1, dash: 'dot' },
       opacity: 0.35,
     });
@@ -103,13 +107,14 @@ export function renderChart(el, key, pts, statusChanges, configEvents, windowRan
     if (!ts || (start && stop && (ts < start || ts > stop))) continue;
     const y = nearestY(pts, ts);
     if (y == null) continue;
-    cx.push(ts); cy.push(y);
+    const tsIST = toIST(ts);
+    cx.push(tsIST); cy.push(y);
     let ctip = `<b>${ce.action}</b>`;
     if (ce.detail) ctip += `<br>${ce.detail}`;
     if (ce.result) ctip += `<br><i>${ce.result}</i>`;
     ctext.push(ctip);
     shapes.push({
-      type: 'line', xref: 'x', yref: 'paper', x0: ts, x1: ts, y0: 0, y1: 1,
+      type: 'line', xref: 'x', yref: 'paper', x0: tsIST, x1: tsIST, y0: 0, y1: 1,
       line: { color: '#0ea5e9', width: 1, dash: 'dash' }, opacity: 0.3,
     });
   }

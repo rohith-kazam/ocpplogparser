@@ -18,6 +18,12 @@ const esc = (s) => (s == null ? '' : String(s))
 const fmtTime = (d) => d
   ? d.toISOString().slice(0, 19).replace('T', ' ')
   : '';
+const fmtTimeIST = (d) => {
+  if (!d) return '';
+  // IST = UTC+5:30
+  const ist = new Date(d.getTime() + 330 * 60 * 1000);
+  return ist.toISOString().slice(0, 19).replace('T', ' ');
+};
 const fmtShort = (d) => d
   ? d.toISOString().slice(5, 16).replace('T', ' ')
   : '';
@@ -150,11 +156,11 @@ function buildReport(data) {
   const scroll = el('div', 'scroll');
   const rows = realChanges.map((sc) => {
     const fault = sc.status === FAULT_STATUS || (sc.errorCode && sc.errorCode !== 'NoError');
-    return `<tr class="${fault ? 'fault' : ''}"><td>${esc(fmtTime(sc.ts))}</td>` +
+    return `<tr class="${fault ? 'fault' : ''}"><td>${esc(fmtTimeIST(sc.ts))}</td>` +
       `<td>${esc(sc.connector)}</td><td>${esc(sc.status)}</td>` +
       `<td>${esc(sc.errorCode)}</td><td>${esc(sc.info)}</td></tr>`;
   }).join('');
-  scroll.innerHTML = '<table><thead><tr><th>Time (UTC)</th><th>Conn</th>' +
+  scroll.innerHTML = '<table><thead><tr><th>Time (IST)</th><th>Conn</th>' +
     '<th>Status</th><th>Error</th><th>Info</th></tr></thead><tbody>' + rows + '</tbody></table>';
   details.appendChild(scroll);
   out.appendChild(details);
