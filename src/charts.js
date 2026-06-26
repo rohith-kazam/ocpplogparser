@@ -2,8 +2,9 @@
 import Plotly from 'plotly.js-dist-min';
 import { shortLabel, seriesColor, STATUS_COLOR } from './parser.js';
 
-// Guard against recursive hover events when we programmatically trigger siblings.
+// Guards against recursive events when we programmatically update siblings.
 let _syncHover = false;
+let _syncZoom = false;
 
 function nearestY(pts, ts) {
   if (!pts.length) return null;
@@ -145,5 +146,24 @@ export function renderChart(el, key, pts, statusChanges, configEvents, windowRan
       Plotly.Fx.hover(sib, []);
     }
     _syncHover = false;
+  });
+
+  // Sync zoom/pan/reset across all sibling charts in the same transaction.
+  el.on('plotly_relayout', function(eventData) {
+    if (_syncZoom) return;
+    const x0 = eventData['xaxis.range[0]'];
+    const x1 = eventData['xaxis.range[1]'];
+    const autorange = eventData['xaxis.autorange'];
+    if (x0 === undefined && x1 === undefined && !autorange) return;
+    const update = autorange
+      ? { 'xaxis.autorange': true }
+      : { 'xaxis.range[0]': x0, 'xaxis.range[1]': x1 };
+    _syncZoom = true;
+    const siblings = el.parentElement ? Array.from(el.parentElement.children) : [];
+    for (const sib of siblings) {
+      if (sib === el || !sib.data) continue;
+      Plotly.relayout(sib, update);
+    }
+    _syncZoom = false;
   });
 }
