@@ -1,212 +1,129 @@
-// Chart building with Plotly — port of build_figure() from ocpp_parser.py
-import Plotly from 'plotly.js-dist-min';
+// Chart building with ApexCharts.
+import ApexCharts from 'apexcharts';
 import { shortLabel, seriesColor, STATUS_COLOR } from './parser.js';
+import { chartToPdf } from './export.js';
 
-// Guard against recursive hover events (Plotly.Fx.hover fires plotly_hover synchronously).
-let _syncHover = false;
-
-// Reset every rendered chart to full autorange, print, then restore the previous zoom.
-export function prepareAndPrint(chartEls) {
-  const divs = chartEls.filter((d) => d.data && d._fullLayout);
-  if (!divs.length) { window.print(); return; }
-
-  // Snapshot zoom state before touching anything.
-  const saved = divs.map((d) => ({
-    xauto: d._fullLayout.xaxis.autorange,
-    xrange: d._fullLayout.xaxis.range ? d._fullLayout.xaxis.range.slice() : null,
-    yauto: d._fullLayout.yaxis.autorange,
-    yrange: d._fullLayout.yaxis.range ? d._fullLayout.yaxis.range.slice() : null,
-  }));
-
-  Promise.all(
-    divs.map((d) => Plotly.relayout(d, { 'xaxis.autorange': true, 'yaxis.autorange': true }))
-  ).then(() => {
-    window.addEventListener('afterprint', () => {
-      divs.forEach((d, i) => {
-        const s = saved[i];
-        const update = {};
-        if (!s.xauto && s.xrange) {
-          update['xaxis.range[0]'] = s.xrange[0];
-          update['xaxis.range[1]'] = s.xrange[1];
-        }
-        if (!s.yauto && s.yrange) {
-          update['yaxis.range[0]'] = s.yrange[0];
-          update['yaxis.range[1]'] = s.yrange[1];
-        }
-        if (Object.keys(update).length) Plotly.relayout(d, update);
-      });
-    }, { once: true });
-    window.print();
-  });
-}
-
-const IST_OFFSET_MS = 330 * 60 * 1000; // UTC+5:30
-const toIST = (d) => new Date(d.getTime() + IST_OFFSET_MS);
+const CONFIG_COLOR = '#0ea5e9';
+const ms = (d) => (d instanceof Date ? d.getTime() : d);
+const hms = (t) => new Date(t).toISOString().slice(11, 19); // UTC HH:MM:SS
 
 function nearestY(pts, ts) {
   if (!pts.length) return null;
-  let best = pts[0], bestDiff = Math.abs(pts[0][0] - ts);
+  let best = pts[0], bestDiff = Math.abs(ms(pts[0][0]) - ts);
   for (const p of pts) {
-    const d = Math.abs(p[0] - ts);
+    const d = Math.abs(ms(p[0]) - ts);
     if (d < bestDiff) { best = p; bestDiff = d; }
   }
   return best[1];
 }
+
+const inWindow = (t, start, stop) => !(start && stop) || (t >= start && t <= stop);
 
 // Render one measurand chart into `el`.
 export function renderChart(el, key, pts, statusChanges, configEvents, windowRange) {
   const label = shortLabel(key);
   const unit = pts.length ? pts[0][2] : '';
   const color = seriesColor(key);
-  const [start, stop] = windowRange;
+  const start = windowRange[0] ? ms(windowRange[0]) : null;
+  const stop = windowRange[1] ? ms(windowRange[1]) : null;
 
-  const xs = pts.map((p) => toIST(p[0]));
-  const ys = pts.map((p) => p[1]);
-
-  const traces = [{
-    x: xs, y: ys, mode: 'lines+markers', name: label,
-    line: { color, width: 2 }, marker: { size: 3 },
-    hovertemplate: `<b>${label}</b>: %{y:.2f} ${unit}<br>%{x|%H:%M:%S}<extra></extra>`,
+  const series = [{
+    name: label, type: 'line',
+    data: pts.map((p) => ({ x: ms(p[0]), y: p[1] })),
   }];
+  const colors = [color];
+  const markerSizes = [3];
+  const markerShapes = ['circle'];
+  const annotations = [];
 
-  const shapes = [];
-
-  // status-change markers
-  const sx = [], sy = [], stext = [], scolors = [];
+  // status changes → one scatter series per distinct status (so each gets its color)
+  const byStatus = new Map();
   for (const sc of statusChanges) {
-    const ts = sc.ts;
-    if (!ts || (start && stop && (ts < start || ts > stop))) continue;
-    const y = nearestY(pts, ts);
+    const t = ms(sc.ts);
+    if (!t || !inWindow(t, start, stop)) continue;
+    const y = nearestY(pts, t);
     if (y == null) continue;
-    const tsIST = toIST(ts);
-    sx.push(tsIST); sy.push(y);
-    scolors.push(STATUS_COLOR[sc.status] || '#475569');
-    const errSuffix = sc.errorCode && sc.errorCode !== 'NoError' ? ` (${sc.errorCode})` : '';
-    const prevPart = sc.prev ? `<br><i>was: ${sc.prev}</i>` : '';
-    stext.push(`<b>${sc.status}${errSuffix}</b><br>conn ${sc.connector}${prevPart}` +
-      (sc.info ? `<br>${sc.info}` : ''));
-    shapes.push({
-      type: 'line', xref: 'x', yref: 'paper', x0: tsIST, x1: tsIST, y0: 0, y1: 1,
-      line: { color: STATUS_COLOR[sc.status] || '#94a3b8', width: 1, dash: 'dot' },
-      opacity: 0.35,
+    const scol = STATUS_COLOR[sc.status] || '#64748b';
+    if (!byStatus.has(sc.status)) byStatus.set(sc.status, { color: scol, data: [] });
+    byStatus.get(sc.status).data.push({
+      x: t, y,
+      meta: `<b>${sc.status} / ${sc.errorCode}</b><br>conn ${sc.connector}` +
+        (sc.info ? `<br>${sc.info}` : ''),
     });
+    annotations.push({ x: t, borderColor: scol, strokeDashArray: 2, opacity: 0.35 });
   }
-  if (sx.length) {
-    traces.push({
-      x: sx, y: sy, mode: 'markers', name: 'Status change',
-      marker: { symbol: 'diamond', size: 11, color: scolors, line: { width: 1, color: '#0f172a' } },
-      text: stext,
-      hovertemplate: '<b>Status change</b><br>%{text}<br>%{x|%H:%M:%S}<extra>Status</extra>',
-    });
+  for (const [status, s] of byStatus) {
+    series.push({ name: status, type: 'scatter', data: s.data });
+    colors.push(s.color);
+    markerSizes.push(7);
+    markerShapes.push('circle');
   }
 
-  // configuration-change markers
-  const cx = [], cy = [], ctext = [];
+  // configuration changes → one scatter series (squares)
+  const cfg = [];
   for (const ce of configEvents) {
-    const ts = ce.ts;
-    if (!ts || (start && stop && (ts < start || ts > stop))) continue;
-    const y = nearestY(pts, ts);
+    const t = ms(ce.ts);
+    if (!t || !inWindow(t, start, stop)) continue;
+    const y = nearestY(pts, t);
     if (y == null) continue;
-    const tsIST = toIST(ts);
-    cx.push(tsIST); cy.push(y);
-    let ctip = `<b>${ce.action}</b>`;
-    if (ce.detail) ctip += `<br>${ce.detail}`;
-    if (ce.result) ctip += `<br><i>${ce.result}</i>`;
-    ctext.push(ctip);
-    shapes.push({
-      type: 'line', xref: 'x', yref: 'paper', x0: tsIST, x1: tsIST, y0: 0, y1: 1,
-      line: { color: '#0ea5e9', width: 1, dash: 'dash' }, opacity: 0.3,
-    });
+    cfg.push({ x: t, y, meta: `<b>Config change</b><br>${ce.action} (${ce.kind})` });
+    annotations.push({ x: t, borderColor: CONFIG_COLOR, strokeDashArray: 6, opacity: 0.3 });
   }
-  if (cx.length) {
-    traces.push({
-      x: cx, y: cy, mode: 'markers', name: 'Config change',
-      marker: { symbol: 'square', size: 10, color: '#0ea5e9', line: { width: 1, color: '#0369a1' } },
-      text: ctext,
-      hovertemplate: '%{text}<br>%{x|%H:%M:%S}<extra>Config</extra>',
-    });
+  if (cfg.length) {
+    series.push({ name: 'Config change', type: 'scatter', data: cfg });
+    colors.push(CONFIG_COLOR);
+    markerSizes.push(8);
+    markerShapes.push('square');
   }
 
-  const layout = {
-    title: { text: `${label}${unit ? `  (${unit})` : ''}`, font: { size: 15, color: '#e2e8f0' } },
-    margin: { l: 44, r: 12, t: 40, b: 30 },
-    height: 340,
-    shapes,
-    legend: { orientation: 'h', yanchor: 'bottom', y: 1.02, xanchor: 'left', x: 0, font: { size: 10, color: '#94a3b8' } },
-    hovermode: 'closest',
-    hoverdistance: 40,
-    hoverlabel: {
-      bgcolor: 'rgba(15,23,42,0.93)',
-      bordercolor: 'rgba(148,163,184,0.35)',
-      font: { family: 'ui-monospace, SFMono-Regular, Menlo, monospace', size: 11, color: '#e2e8f0' },
+  const options = {
+    chart: {
+      type: 'line', height: 360, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+      background: 'transparent', parentHeightOffset: 0,
+      toolbar: {
+        offsetY: -4, autoSelected: 'pan',
+        tools: {
+          download: true, selection: false, pan: true, zoom: true, zoomin: true, zoomout: true, reset: true,
+          customIcons: [{
+            icon: '<span style="font:600 10px/24px var(--sans,sans-serif);color:#64748b;padding:0 2px">PDF</span>',
+            title: 'Download this chart as PDF', index: -1,
+            click: (c) => chartToPdf(c, `${label}${unit ? ` (${unit})` : ''}`),
+          }],
+        },
+      },
+      zoom: { enabled: true, type: 'x', autoScaleYaxis: false },
+      animations: { enabled: false },
     },
-    plot_bgcolor: 'rgba(0,0,0,0)', paper_bgcolor: 'rgba(0,0,0,0)',
-    font: { family: 'ui-monospace, SFMono-Regular, Menlo, monospace', size: 11, color: '#94a3b8' },
+    series, colors,
+    stroke: { width: series.map((s) => (s.type === 'line' ? 2 : 0)), curve: 'straight' },
+    markers: { size: markerSizes, shape: markerShapes, strokeColors: '#fff', strokeWidth: 1, hover: { sizeOffset: 2 } },
+    title: { text: `${label}${unit ? `  (${unit})` : ''}`, offsetX: 4, offsetY: 2, style: { fontSize: '14px', fontWeight: 700, color: '#0f1b2d' } },
+    legend: { show: false },
+    grid: { borderColor: 'rgba(15,27,45,0.08)', strokeDashArray: 0, padding: { left: 8, right: 12, top: 0, bottom: 0 } },
     xaxis: {
-      showgrid: true, gridcolor: 'rgba(148,163,184,0.12)', zeroline: false,
-      showspikes: true, spikemode: 'across', spikecolor: 'rgba(148,163,184,0.3)',
-      spikethickness: 1, spikedash: 'dot', spikesnap: 'cursor',
+      type: 'datetime', ...(start && stop ? { min: start, max: stop } : {}),
+      labels: { datetimeUTC: true, style: { colors: '#64748b', fontSize: '10px' }, format: 'HH:mm:ss' },
+      axisBorder: { color: 'rgba(15,27,45,0.12)' }, axisTicks: { color: 'rgba(15,27,45,0.12)' },
     },
     yaxis: {
-      title: { text: unit, font: { size: 10 } },
-      showgrid: true, gridcolor: 'rgba(148,163,184,0.12)', zeroline: false,
-      showspikes: true, spikemode: 'across', spikecolor: 'rgba(148,163,184,0.15)',
-      spikethickness: 1, spikedash: 'dot',
+      title: { text: unit, style: { color: '#64748b', fontSize: '10px', fontWeight: 400 } },
+      labels: { style: { colors: '#64748b', fontSize: '10px' }, formatter: (v) => (v == null ? '' : v.toFixed(2)) },
+    },
+    annotations: { xaxis: annotations },
+    tooltip: {
+      custom: ({ seriesIndex, dataPointIndex, w }) => {
+        const p = w.config.series[seriesIndex]?.data?.[dataPointIndex];
+        const inner = p?.meta
+          ? p.meta
+          : `${hms(p?.x)}<br>${p?.y != null ? p.y.toFixed(2) : ''} ${unit}`;
+        return `<div class="apex-tip">${inner}</div>`;
+      },
     },
   };
 
-  Plotly.newPlot(el, traces, layout, { responsive: true, displaylogo: false, displayModeBar: 'hover' });
-
-  // Sync hover across all sibling charts in the same transaction.
-  el.on('plotly_hover', function(eventData) {
-    if (_syncHover || !eventData.points || !eventData.points.length) return;
-    const xTs = new Date(eventData.points[0].x).getTime();
-    _syncHover = true;
-    const siblings = el.parentElement ? Array.from(el.parentElement.children) : [];
-    for (const sib of siblings) {
-      if (sib === el || !sib.data || !sib.data[0] || !sib.data[0].x.length) continue;
-      if (sib.dataset.txid !== el.dataset.txid) continue;
-      const sibXs = sib.data[0].x;
-      let best = 0, bestDiff = Infinity;
-      for (let i = 0; i < sibXs.length; i++) {
-        const d = Math.abs(new Date(sibXs[i]).getTime() - xTs);
-        if (d < bestDiff) { bestDiff = d; best = i; }
-      }
-      Plotly.Fx.hover(sib, [{ curveNumber: 0, pointNumber: best }]);
-    }
-    _syncHover = false;
-  });
-
-  el.on('plotly_unhover', function() {
-    if (_syncHover) return;
-    _syncHover = true;
-    const siblings = el.parentElement ? Array.from(el.parentElement.children) : [];
-    for (const sib of siblings) {
-      if (sib === el || !sib.data) continue;
-      if (sib.dataset.txid !== el.dataset.txid) continue;
-      Plotly.Fx.hover(sib, []);
-    }
-    _syncHover = false;
-  });
-
-  // Sync zoom/pan/reset across all sibling charts in the same transaction.
-  // Plotly.relayout is async, so we stamp each target element before calling it
-  // and clear in the Promise — a module-level boolean would reset too early.
-  el.on('plotly_relayout', function(eventData) {
-    if (el._zoomBusy) return;
-    const x0 = eventData['xaxis.range[0]'];
-    const x1 = eventData['xaxis.range[1]'];
-    const autorange = eventData['xaxis.autorange'];
-    if (x0 === undefined && x1 === undefined && !autorange) return;
-    const update = autorange
-      ? { 'xaxis.autorange': true }
-      : { 'xaxis.range[0]': x0, 'xaxis.range[1]': x1 };
-    const siblings = el.parentElement ? Array.from(el.parentElement.children) : [];
-    for (const sib of siblings) {
-      if (sib === el || !sib.data) continue;
-      if (sib.dataset.txid !== el.dataset.txid) continue;
-      sib._zoomBusy = true;
-      Plotly.relayout(sib, update).then(() => { sib._zoomBusy = false; });
-    }
-  });
+  const chart = new ApexCharts(el, options);
+  chart.render();
+  // double-click resets zoom (ApexCharts only offers a toolbar reset otherwise)
+  if (start && stop) el.addEventListener('dblclick', () => chart.zoomX(start, stop));
+  return chart;
 }

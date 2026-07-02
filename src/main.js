@@ -1,11 +1,15 @@
 import Papa from 'papaparse';
 import {
   parseRows, txWindow, faultsDuringTx, seriesStats, fmtDur,
-  findSeriesKey, globalExtremes, shortLabel, FAULT_STATUS,
+  findSeriesKey, globalExtremes, shortLabel, FAULT_STATUS, STATUS_COLOR,
 } from './parser.js';
-import { renderChart, prepareAndPrint } from './charts.js';
+import { renderChart } from './charts.js';
+import { reportToPdf } from './export.js';
+import { mdiTrayArrowUp, mdiFileChartOutline, mdiFilePdfBox } from '@mdi/js';
 
 const $ = (sel) => document.querySelector(sel);
+const icon = (path, size = 16) =>
+  `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="${path}"/></svg>`;
 const el = (tag, cls, html) => {
   const n = document.createElement(tag);
   if (cls) n.className = cls;
@@ -18,12 +22,6 @@ const esc = (s) => (s == null ? '' : String(s))
 const fmtTime = (d) => d
   ? d.toISOString().slice(0, 19).replace('T', ' ')
   : '';
-const fmtTimeIST = (d) => {
-  if (!d) return '';
-  // IST = UTC+5:30
-  const ist = new Date(d.getTime() + 330 * 60 * 1000);
-  return ist.toISOString().slice(0, 19).replace('T', ' ');
-};
 const fmtShort = (d) => d
   ? d.toISOString().slice(5, 16).replace('T', ' ')
   : '';
@@ -55,17 +53,57 @@ function buildReport(data) {
   const g = globalExtremes(transactions);
   const boot = data.boots[0] || {};
 
+  // ---- PDF model (populated as the report is built) ----
+  const pdfModel = {
+    filename: `ocpp-report-${device.replace(/[^\w.-]+/g, '_')}.pdf`,
+    header: {
+      device, model: boot.model, fw: boot.fw, frames: data.rowCount,
+      span: (span[0] && span[1])
+        ? `${fmtTime(span[0])} → ${span[1].toISOString().slice(11, 16)} UTC` : '',
+    },
+    summary: [
+      { label: 'Transactions', value: realTxs.length },
+      { label: 'Fault episodes', value: `${faultEpisodes} (${faultNotifs} notifications)` },
+      { label: 'Error codes', value: errorCodes.join(', ') || 'None' },
+      { label: 'Status changes', value: statusChanges.length },
+      { label: 'Config changes', value: configEvents.length },
+      { label: 'Boots / Heartbeats', value: `${data.boots.length} / ${data.heartbeats}` },
+    ],
+    txs: [],
+    timeline: [],
+  };
+  for (const base of ['Voltage', 'Current', 'Power']) {
+    if (g[base] && g[base].max != null) {
+      pdfModel.summary.push({ label: `${base} range`,
+        value: `${g[base].min.toFixed(2)} – ${g[base].max.toFixed(2)} ${g[base].unit}` });
+    }
+  }
+
   // ---- header strip ----
   const head = el('div', 'report-head');
-  head.appendChild(el('div', 'rh-title',
+  const meta = el('div', 'rh-meta');
+  meta.appendChild(el('div', 'rh-title',
     `Device <b>${esc(device)}</b>` +
     (boot.model ? ` · ${esc(boot.model)}` : '') +
     (boot.fw ? ` · FW ${esc(boot.fw)}` : '')));
-  head.appendChild(el('div', 'rh-sub',
+  meta.appendChild(el('div', 'rh-sub',
     (span[0] && span[1]
       ? `${esc(fmtTime(span[0]))} → ${esc(span[1].toISOString().slice(11, 16))} UTC`
       : '') +
     ` · ${data.rowCount} frames`));
+  head.appendChild(meta);
+  const pdfBtn = el('button', 'btn no-print',
+    `${icon(mdiFilePdfBox)}<span class="lbl">Download PDF</span>`);
+  pdfBtn.addEventListener('click', async () => {
+    const lbl = pdfBtn.querySelector('.lbl');
+    pdfBtn.disabled = true; lbl.textContent = 'Generating…';
+    try {
+      await reportToPdf(pdfModel);
+    } finally {
+      pdfBtn.disabled = false; lbl.textContent = 'Download PDF';
+    }
+  });
+  head.appendChild(pdfBtn);
   out.appendChild(head);
 
   // ---- device summary ----
@@ -87,6 +125,18 @@ function buildReport(data) {
     }
   }
   out.appendChild(devCards);
+
+  // ---- shared chart marker key (statuses + config) ----
+  const statuses = [...new Set(statusChanges.map((s) => s.status).filter(Boolean))];
+  if (statuses.length || configEvents.length) {
+    const items = statuses.map((st) =>
+      `<span class="key-item"><i style="background:${STATUS_COLOR[st] || '#64748b'}"></i>${esc(st)}</span>`);
+    if (configEvents.length) {
+      items.push('<span class="key-item"><i class="sq" style="background:#0ea5e9"></i>Config change</span>');
+    }
+    out.appendChild(el('div', 'chart-key',
+      `<span class="key-label">Chart markers</span>${items.join('')}`));
+  }
 
   // ---- per-transaction sections ----
   const chartJobs = [];
@@ -115,6 +165,12 @@ function buildReport(data) {
       `<span class="conn">connector ${esc(tx.connector)}</span>`;
     section.appendChild(h);
 
+    const txModel = {
+      title: `Transaction ${tx.txid != null ? tx.txid : key} · connector ${tx.connector}`,
+      charts: [],
+    };
+    pdfModel.txs.push(txModel);
+
     const cards = el('div', 'cards');
     cards.appendChild(card('Mid-transaction faults', episodes,
       `${total} fault notifications`, episodes ? '#ef4444' : '#22c55e'));
@@ -126,10 +182,8 @@ function buildReport(data) {
       `min ${stats[ikey].min.toFixed(2)} A`, '#22c55e'));
     if (pkey) cards.appendChild(card('Max power', `${stats[pkey].max.toFixed(0)} W`,
       `min ${stats[pkey].min.toFixed(0)} W`, '#f59e0b'));
-    if (pkey) cards.appendChild(card('Avg power', `${stats[pkey].avg.toFixed(0)} W`,
-      `over ${stats[pkey].n} samples`, '#f59e0b'));
     if (ekey) cards.appendChild(card('Energy delivered', energyDelivered,
-      `${stats[ekey].first.toFixed(0)} → ${stats[ekey].last.toFixed(0)} ${stats[ekey].unit}`, '#a855f7'));
+      `register ${stats[ekey].last.toFixed(0)} ${stats[ekey].unit}`, '#a855f7'));
     section.appendChild(cards);
 
     const order = [vkey, ikey, pkey, ekey].filter(Boolean);
@@ -138,10 +192,10 @@ function buildReport(data) {
     const charts = el('div', 'charts');
     for (const k of order) {
       const chartDiv = el('div', 'chart');
-      chartDiv.dataset.txid = String(key);
       charts.appendChild(chartDiv);
-      chartJobs.push(() => renderChart(chartDiv, k, tx.series.get(k),
-        statusChanges, configEvents, [start, stop]));
+      chartJobs.push(() => txModel.charts.push({
+        chart: renderChart(chartDiv, k, tx.series.get(k), statusChanges, configEvents, [start, stop]),
+      }));
     }
     section.appendChild(charts);
     out.appendChild(section);
@@ -156,11 +210,16 @@ function buildReport(data) {
   const scroll = el('div', 'scroll');
   const rows = realChanges.map((sc) => {
     const fault = sc.status === FAULT_STATUS || (sc.errorCode && sc.errorCode !== 'NoError');
-    return `<tr class="${fault ? 'fault' : ''}"><td>${esc(fmtTimeIST(sc.ts))}</td>` +
-      `<td>${esc(sc.connector)}</td><td>${esc(sc.status)}</td>` +
+    pdfModel.timeline.push({
+      cells: [fmtTime(sc.ts), String(sc.connector ?? ''), sc.status || '', sc.errorCode || '', sc.info || ''],
+      fault,
+    });
+    const badge = `<span class="badge"><i style="background:${STATUS_COLOR[sc.status] || '#64748b'}"></i>${esc(sc.status)}</span>`;
+    return `<tr class="${fault ? 'fault' : ''}"><td>${esc(fmtTime(sc.ts))}</td>` +
+      `<td>${esc(sc.connector)}</td><td>${badge}</td>` +
       `<td>${esc(sc.errorCode)}</td><td>${esc(sc.info)}</td></tr>`;
   }).join('');
-  scroll.innerHTML = '<table><thead><tr><th>Time (IST)</th><th>Conn</th>' +
+  scroll.innerHTML = '<table><thead><tr><th>Time (UTC)</th><th>Conn</th>' +
     '<th>Status</th><th>Error</th><th>Info</th></tr></thead><tbody>' + rows + '</tbody></table>';
   details.appendChild(scroll);
   out.appendChild(details);
@@ -214,6 +273,9 @@ function init() {
   const dz = $('#dropzone');
   const input = $('#fileInput');
 
+  $('#pickIco').innerHTML = icon(mdiTrayArrowUp);
+  $('#dzIcon').innerHTML = icon(mdiFileChartOutline, 34);
+
   $('#pick').addEventListener('click', () => input.click());
   input.addEventListener('change', (e) => {
     if (e.target.files[0]) handleFile(e.target.files[0]);
@@ -226,10 +288,6 @@ function init() {
   dz.addEventListener('drop', (e) => {
     const f = e.dataTransfer.files[0];
     if (f) handleFile(f);
-  });
-
-  $('#export-pdf').addEventListener('click', () => {
-    prepareAndPrint(Array.from(document.querySelectorAll('#report .chart')));
   });
 
   $('#reset').addEventListener('click', () => {

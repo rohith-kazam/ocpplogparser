@@ -10,12 +10,11 @@
 <body>
   <div class="topbar">
     <div class="brand">
-      <div class="spark">⚡</div>
+      <img class="logo" src="https://d1bfnsg9serpwj.cloudfront.net/public/newAssets/logo-black.png" alt="Kazam" />
       <h1>OCPP Log Report</h1>
       <span class="ver">1.6J</span>
     </div>
     <div class="spacer"></div>
-    <button id="export-pdf" class="btn">Export PDF</button>
     <button id="reset" class="btn">New file</button>
   </div>
 
@@ -29,10 +28,10 @@
     </div>
 
     <div id="dropzone">
-      <div class="dz-icon">📈</div>
+      <div class="dz-icon" id="dzIcon"></div>
       <div class="dz-main">Drop your OCPP CSV here</div>
       <div class="dz-sub">columns: TIMESTAMP · DEVICE ID · SOURCE · TYPE · ACTION · MESSAGE</div>
-      <button id="pick" class="btn primary">Choose file</button>
+      <button id="pick" class="btn primary"><span class="ico" id="pickIco"></span>Choose file</button>
       <input id="fileInput" type="file" accept=".csv,text/csv" hidden />
     </div>
 
@@ -46,7 +45,7 @@
     <div id="report"></div>
   </div>
 
-  <footer>Runs entirely client-side · times shown in UTC · drag on a chart to zoom, double-click to reset</footer>
+  <footer>Runs entirely client-side · times shown in UTC · drag to pan a chart, magnifier to zoom, double-click to reset</footer>
 
   <script type="module" src="./src/main.js"></script>
 </body>
