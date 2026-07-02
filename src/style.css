@@ -225,6 +225,22 @@ tr.fault td, tr.fault:hover td { background: rgba(220, 38, 38, 0.08); }
 
 footer { text-align: center; color: var(--muted); font-size: 11px; padding: 26px 12px; }
 
+.hidden { display: none; }
+
+.view-toggle {
+  display: flex; gap: 24px; margin: 20px 0 2px;
+  border-bottom: 1px solid var(--line);
+}
+.seg {
+  font-family: var(--sans); font-size: 14px; font-weight: 650;
+  color: var(--muted); background: transparent; border: none;
+  padding: 9px 2px; cursor: pointer;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.seg:hover { color: var(--fg); }
+.seg.active { color: #8150E9; border-bottom-color: #8150E9; }
+
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }

@@ -126,6 +126,26 @@ function buildReport(data) {
   }
   out.appendChild(devCards);
 
+  // ---- view toggle: charts vs StatusNotification timeline ----
+  const chartsView = el('div', 'view');
+  const timelineView = el('div', 'view hidden');
+  const toggle = el('div', 'view-toggle no-print');
+  const btnCharts = el('button', 'seg active', 'Charts');
+  const btnTimeline = el('button', 'seg', 'StatusNotification timeline');
+  const show = (charts) => {
+    chartsView.classList.toggle('hidden', !charts);
+    timelineView.classList.toggle('hidden', charts);
+    btnCharts.classList.toggle('active', charts);
+    btnTimeline.classList.toggle('active', !charts);
+  };
+  btnCharts.addEventListener('click', () => show(true));
+  btnTimeline.addEventListener('click', () => show(false));
+  toggle.appendChild(btnCharts);
+  toggle.appendChild(btnTimeline);
+  out.appendChild(toggle);
+  out.appendChild(chartsView);
+  out.appendChild(timelineView);
+
   // ---- shared chart marker key (statuses + config) ----
   const statuses = [...new Set(statusChanges.map((s) => s.status).filter(Boolean))];
   if (statuses.length || configEvents.length) {
@@ -134,7 +154,7 @@ function buildReport(data) {
     if (configEvents.length) {
       items.push('<span class="key-item"><i class="sq" style="background:#0ea5e9"></i>Config change</span>');
     }
-    out.appendChild(el('div', 'chart-key',
+    chartsView.appendChild(el('div', 'chart-key',
       `<span class="key-label">Chart markers</span>${items.join('')}`));
   }
 
@@ -198,31 +218,28 @@ function buildReport(data) {
       }));
     }
     section.appendChild(charts);
-    out.appendChild(section);
+    chartsView.appendChild(section);
   }
 
   // ---- status timeline ----
   const realChanges = statusChanges.filter((s) => s.status);
-  const details = el('details');
-  details.open = false;
-  details.appendChild(el('summary', null,
+  timelineView.appendChild(el('h2', null,
     `StatusNotification timeline (${realChanges.length} changes)`));
   const scroll = el('div', 'scroll');
   const rows = realChanges.map((sc) => {
     const fault = sc.status === FAULT_STATUS || (sc.errorCode && sc.errorCode !== 'NoError');
     pdfModel.timeline.push({
-      cells: [fmtTime(sc.ts), String(sc.connector ?? ''), sc.status || '', sc.errorCode || '', sc.info || ''],
+      cells: [fmtTime(sc.ts), String(sc.connector ?? ''), sc.status || '', sc.errorCode || '', sc.vendorErrorCode || '', sc.info || ''],
       fault,
     });
     const badge = `<span class="badge"><i style="background:${STATUS_COLOR[sc.status] || '#64748b'}"></i>${esc(sc.status)}</span>`;
     return `<tr class="${fault ? 'fault' : ''}"><td>${esc(fmtTime(sc.ts))}</td>` +
       `<td>${esc(sc.connector)}</td><td>${badge}</td>` +
-      `<td>${esc(sc.errorCode)}</td><td>${esc(sc.info)}</td></tr>`;
+      `<td>${esc(sc.errorCode)}</td><td>${esc(sc.vendorErrorCode)}</td><td>${esc(sc.info)}</td></tr>`;
   }).join('');
   scroll.innerHTML = '<table><thead><tr><th>Time (UTC)</th><th>Conn</th>' +
-    '<th>Status</th><th>Error</th><th>Info</th></tr></thead><tbody>' + rows + '</tbody></table>';
-  details.appendChild(scroll);
-  out.appendChild(details);
+    '<th>Status</th><th>Error</th><th>Vendor err</th><th>Info</th></tr></thead><tbody>' + rows + '</tbody></table>';
+  timelineView.appendChild(scroll);
 
   // render charts after layout settles (Plotly needs sized containers)
   requestAnimationFrame(() => chartJobs.forEach((job) => job()));

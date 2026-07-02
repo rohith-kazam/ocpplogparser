@@ -158,6 +158,7 @@ export function parseRows(rows) {
       if (prevSig !== sig) {
         statusChanges.push({
           ts: evTs, connector: conn, status, errorCode: err,
+          vendorErrorCode: payload.vendorErrorCode ?? null,
           info: payload.info || '',
           prev: prevSig ? prevSig.split('|')[0] : null,
         });

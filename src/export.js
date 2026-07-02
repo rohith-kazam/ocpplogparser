@@ -122,7 +122,7 @@ export async function reportToPdf(model) {
     heading(`StatusNotification timeline (${model.timeline.length})`);
     autoTable(pdf, {
       startY: y,
-      head: [['Time (UTC)', 'Conn', 'Status', 'Error', 'Info']],
+      head: [['Time (UTC)', 'Conn', 'Status', 'Error', 'Vendor err', 'Info']],
       body: model.timeline.map((r) => r.cells),
       margin: { left: m, right: m },
       theme: 'plain',
